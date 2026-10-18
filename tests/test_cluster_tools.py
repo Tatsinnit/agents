@@ -1818,17 +1818,19 @@ class ComposedEvalCliTestCase(unittest.TestCase):
         cases = (
             ("missing",
              lambda: self.kubectl.failures.add(("agents.core.orka.ai", "hello")),
-             "eval failed: pinned hello or coordinator Agent readback could not be established before Task submission"),
+             "eval failed: legacy coordinator path could not inspect live hello ownership", 0, False),
             ("not-ready",
              lambda: self.kubectl.responses[("agents.core.orka.ai", "hello")].__setitem__(
                  "status", {"conditions": [{"type": "Ready", "status": "False", "observedGeneration": 1}]}
              ),
-             "eval failed: pinned hello or coordinator Agent was not current-generation Ready and spec-identical before Task submission"),
+             "eval failed: pinned hello or coordinator Agent was not current-generation Ready and spec-identical before Task submission",
+             2, True),
             ("spec-drift",
              lambda: self.kubectl.responses[("agents.core.orka.ai", "coordinator")]["spec"].update({"extra": True}),
-             "eval failed: pinned hello or coordinator Agent was not current-generation Ready and spec-identical before Task submission"),
+             "eval failed: pinned hello or coordinator Agent was not current-generation Ready and spec-identical before Task submission",
+             2, True),
         )
-        for label, mutate, message in cases:
+        for label, mutate, message, apply_count, readbacks in cases:
             with self.subTest(case=label):
                 self.setUp()
                 mutate()
@@ -1836,10 +1838,10 @@ class ComposedEvalCliTestCase(unittest.TestCase):
                 self.assertEqual(code, 1)
                 self.assertEqual(out, "")
                 self.assertIn(message, err)
-                self.assertEqual(self.kubectl.verbs().count("apply"), 2)
+                self.assertEqual(self.kubectl.verbs().count("apply"), apply_count)
                 self.assertEqual(self.kubectl.verbs().count("create"), 0)
-                self.assertTrue((self.evidence / "delegates" / "hello-agent-readback.json").is_file())
-                self.assertTrue((self.evidence / "delegates" / "coordinator-agent-readback.json").is_file())
+                self.assertEqual((self.evidence / "delegates" / "hello-agent-readback.json").is_file(), readbacks)
+                self.assertEqual((self.evidence / "delegates" / "coordinator-agent-readback.json").is_file(), readbacks)
                 self.assertFalse((self.evidence / "campaign-ledger.json").exists())
                 self.assertEqual(sorted((self.coordinator / "eval" / "receipts").rglob("*.json")), [])
 
